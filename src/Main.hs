@@ -4,9 +4,10 @@ import Graphics.Gloss
 import Graphics.Gloss.Interface.Pure.Game
 import Data.Array
 import Data.Foldable ( asum )
+import Data.Maybe
 
-data Player = PlayerX | Player0 deriving (Eq, Show)
-data GameState = Running | GameOver (Maybe Player) deriving (Eq, Show)
+data Player = PlayerX | PlayerO deriving (Eq, Show)
+data GameState = Running | GameOver (Player) | DrawMatch deriving (Eq, Show)
 type Cell = Maybe Player
 type Board = Array (Int, Int) Cell
 data Game = Game {
@@ -15,7 +16,7 @@ data Game = Game {
     state :: GameState
 } deriving (Eq, Show)
 
--- TODO: Modularise this file
+-- TODO: Modularize this file
 
 -- Display Constant Values
 n = 3
@@ -28,7 +29,7 @@ cellOColor = blue
 cellXColor = red
 
 playerColor :: Player -> Color
-playerColor Player0 = cellOColor
+playerColor PlayerO = cellOColor
 playerColor PlayerX = cellXColor
 
 window = InWindow "Tic Tac Toe" (screenWidth, screenHeight) (200, 200)
@@ -36,9 +37,11 @@ window = InWindow "Tic Tac Toe" (screenWidth, screenHeight) (200, 200)
 main :: IO()
 main = play window black 30 initialGame renderGame transformGame (const id)
 
+isValidCoordinate = inRange ((0, 0), (n - 1, n - 1))
+
 initialGame = Game {
     board = array ((0,0), (2,2)) $ zip (range ((0,0), (2,2))) (repeat Nothing),
-    player = Player0,
+    player = PlayerO,
     state = Running
 }
 
@@ -81,7 +84,7 @@ cellToPicture (idx, c) =
     posPictureInCell idx
     $ toPicture c
     where toPicture (Just PlayerX) = cellX
-          toPicture (Just Player0) = cellO
+          toPicture (Just PlayerO) = cellO
           toPicture Nothing = blank
 
 renderCells :: Board -> Player -> Picture
@@ -95,8 +98,16 @@ renderXCells :: Board -> Picture
 renderXCells b = 
     Pictures 
     $ map cellToPicture
-    $ filter (\(_, c) -> c == (Just Player0))
+    $ filter (\(_, c) -> c == (Just PlayerO))
     $ assocs b
+
+transformMessagePicture :: Picture -> Picture
+transformMessagePicture p = 
+    translate
+        (fromIntegral screenWidth * (-0.25))
+        (fromIntegral screenHeight * (0.1))
+        (Scale 0.5 0.5 p)
+    
 
 renderGame :: Game -> Picture
 renderGame game = 
@@ -105,35 +116,27 @@ renderGame game =
             (fromIntegral screenWidth * (-0.5))
             (fromIntegral screenHeight * (-0.5))
             (Pictures [
-                renderCells (board game) Player0, 
+                renderCells (board game) PlayerO, 
                 renderCells (board game) PlayerX, 
                 (color green boardGrid) 
             ])
-        GameOver(Just p) -> translate
-            (fromIntegral screenWidth * (-0.5))
-            (fromIntegral screenHeight * (0.1))
-            (Color (playerColor p) (Text $ show(p) ++ " won!"))
-        GameOver(Nothing) -> translate
-            (fromIntegral screenWidth * (-0.5))
-            (fromIntegral screenHeight * (0.1))
-            (Color white (Text "Draw Match"))
-
+        GameOver(p) -> transformMessagePicture $ Color (playerColor p) (Text $ show(p) ++ " won!")
+        DrawMatch -> transformMessagePicture $ Color white ((Text "Draw Match"))
 
 switchPlayer :: Game -> Game
 switchPlayer g =
     case (player g) of
-        Player0 -> g { player = PlayerX }
-        PlayerX -> g { player = Player0 }
+        PlayerO -> g { player = PlayerX }
+        PlayerX -> g { player = PlayerO }
 
--- TODO: Handle click outside the board 
 markPlayerMove :: Game -> (Int, Int) -> Game
 markPlayerMove g cellIdx 
-    | b ! cellIdx == Nothing = g { board = b // [(cellIdx, Just p)] }
+    | (isValidCoordinate cellIdx) && (b ! cellIdx == Nothing) = g { board = b // [(cellIdx, Just p)] }
     | otherwise = g
     where b = board g
           p = player g
 
-coordsToCellIdx :: (Float, Float) -> (Int, Int) 
+coordsToCellIdx :: (Float, Float) -> (Int, Int)
 coordsToCellIdx (x, y) = 
     (floor ((x + (fromIntegral screenWidth * 0.5)) / cellWidth),
       floor ((y + (fromIntegral screenHeight * 0.5)) / cellHeight))
@@ -147,10 +150,12 @@ transformGame (EventKey (MouseButton LeftButton) Up _ mousePos) game =
             $ markPlayerMove game 
             $ coordsToCellIdx mousePos
         GameOver(_) -> initialGame
+        DrawMatch -> initialGame
 transformGame (EventKey (SpecialKey KeySpace) Up _ _) game = 
     case state game of 
-        Running -> game { state = GameOver(Just (player game)) }
+        Running -> game { state = DrawMatch }
         GameOver(_) -> initialGame
+        DrawMatch -> initialGame
 transformGame _ game = game
 
 full :: [Cell] -> Maybe Player
@@ -166,10 +171,12 @@ findWinner b =
           cols  = [[b ! (j,i) | i <- [0..n-1]] | j <- [0..n-1]]
           diags = [[b ! (i,i) | i <- [0..n-1]]
                   ,[b ! (i,j) | i <- [0..n-1], let j = n-1-i ]]
+                
+allCellsFilled :: Board -> Bool
+allCellsFilled b = null $ filter (\(_, e) -> e == Nothing) $  assocs b 
 
 checkGameCompletion :: Game -> Game
 checkGameCompletion g = 
     case findWinner (board g) of 
-        Just p -> g { state = GameOver (Just p) }
-        Nothing -> g 
-        -- TODO: Include logic to handle draw and remove Space key event
+        Just p -> g { state = GameOver (p) }
+        Nothing ->  if allCellsFilled $ board g then g { state = DrawMatch } else g
