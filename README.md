@@ -8,4 +8,4 @@ $ stack build
 $ stack exec ttt
 ```
 
-> Note: If there is a problem loading the GUI  inside nix shell, we can build the project inside nix-shell and run the executable outside
+> Note: If there is a problem loading the GUI inside nix shell, we can build the project inside nix-shell and run the executable outside the nix-shell
